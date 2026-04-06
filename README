@@ -1,0 +1,90 @@
+docker compose run --rm airflow-webserver airflow db init
+
+docker compose run --rm airflow-webserver airflow users create -u admin -p admin -r Admin -f prenom -l nom -e admin@example.com
+
+docker compose up -d
+
+#   - AQICN  (World Air Quality Index)  : qualité de l'air
+#   - OWM    (OpenWeatherMap)           : météo
+#
+# Utilisation : python transform.py
+#   → Traite automatiquement tous les fichiers JSON du dossier courant
+#   → Écrit les fichiers nettoyés dans le sous-dossier cleaned/
+#
+# =============================================================================
+# STRUCTURE DES DONNÉES AQICN (après transformation)
+# =============================================================================
+#
+#   ville         : nom de la ville (tel que fourni à l'API)
+#   source        : "aqicn" (indicateur d'origine)
+#   lat / lon     : coordonnées GPS de la station de mesure
+#   aqi           : Air Quality Index global (0-500)
+#                     0-50   Bon
+#                     51-100 Modéré
+#                    101-150 Mauvais pour les groupes sensibles
+#                    151-200 Mauvais
+#                    201-300 Très mauvais
+#                    301-500 Dangereux
+#   dominentpol   : polluant dominant (ex : "pm25", "o3")
+#   timestamp     : horodatage ISO 8601 de la dernière mesure
+#   timezone      : fuseau horaire de la station (ex : "+01:00")
+#
+#   iaqi          : mesures individuelles par polluant (Individual AQI)
+#     co          : monoxyde de carbone (mg/m³)
+#     h           : humidité relative (%)
+#     no2         : dioxyde d'azote (µg/m³)
+#     o3          : ozone (µg/m³)
+#     p           : pression atmosphérique (hPa)
+#     pm10        : particules fines ≤ 10 µm (µg/m³)
+#     pm25        : particules fines ≤ 2.5 µm (µg/m³) — le plus surveillé
+#     so2         : dioxyde de soufre (µg/m³)
+#     t           : température (°C)
+#     w           : vitesse du vent (m/s)
+#
+#   forecast      : prévisions journalières (uniquement dates de l'année courante)
+#     o3          : prévisions ozone        — avg / min / max sur la journée
+#     pm10        : prévisions PM10         — avg / min / max sur la journée
+#     pm25        : prévisions PM2.5        — avg / min / max sur la journée
+#     uvi         : indice UV (0-11+)       — avg / min / max sur la journée
+#                     0-2   Faible
+#                     3-5   Modéré
+#                     6-7   Élevé
+#                     8-10  Très élevé
+#                     11+   Extrême
+#
+# =============================================================================
+# STRUCTURE DES DONNÉES OWM (après transformation)
+# =============================================================================
+#
+#   ville               : nom de la ville (tel que fourni à l'API)
+#   source              : "owm" (indicateur d'origine)
+#   lat / lon           : coordonnées GPS de la station de mesure
+#   timestamp           : horodatage ISO 8601 de la mesure
+#   timezone_offset_s   : décalage UTC en secondes (ex : 3600 = UTC+1)
+#
+#   weather_main        : condition météo principale (ex : "Clear", "Rain", "Clouds")
+#   weather_description : condition météo détaillée en français (ex : "ciel dégagé")
+#
+#   temp                : température actuelle (°C)
+#   feels_like          : température ressentie (°C)
+#   temp_min            : température minimale observée sur la zone (°C)
+#   temp_max            : température maximale observée sur la zone (°C)
+#   pressure            : pression atmosphérique au niveau de la mer (hPa)
+#   humidity            : humidité relative (%)
+#   sea_level           : pression au niveau de la mer (hPa) — identique à pressure
+#   grnd_level          : pression au sol (hPa) — utile en altitude
+#
+#   visibility          : visibilité horizontale (mètres, max 10 000)
+#
+#   wind_speed          : vitesse du vent (m/s)
+#   wind_deg            : direction du vent (degrés, 0=Nord, 90=Est, 180=Sud, 270=Ouest)
+#   wind_gust           : vitesse des rafales (m/s) — absent si pas de rafale
+#
+#   clouds              : couverture nuageuse (%, 0=ciel dégagé, 100=couvert)
+#
+#   sunrise             : heure du lever du soleil (ISO 8601, heure locale)
+#   sunset              : heure du coucher du soleil (ISO 8601, heure locale)
+#   country             : code pays ISO 3166-1 alpha-2 (ex : "FR")
+#
+# =============================================================================
+

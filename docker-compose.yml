@@ -1,0 +1,191 @@
+services:
+
+  # ============================================================
+  # PostgreSQL — Métadonnées Airflow + Data Warehouse GoodAir
+  # ============================================================
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts:/docker-entrypoint-initdb.d   # Initialise le schéma goodair au 1er démarrage
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  # ============================================================
+  # db-init — Initialisation du schéma GoodAir à chaque démarrage
+  # ============================================================
+  db-init:
+    image: postgres:13
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: psql postgresql://airflow:airflow@postgres/airflow -f /scripts/init.sql
+    volumes:
+      - ./scripts:/scripts
+    restart: "no"
+
+  # # ============================================================
+  # # MinIO — Data Lake (stockage objet compatible S3)
+  # # Console : http://localhost:9001
+  # # ============================================================
+  # minio:
+  #   image: minio/minio:latest
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+  #     - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+  #   ports:
+  #     - "9000:9000"   # API S3
+  #     - "9001:9001"   # Console web
+  #   volumes:
+  #     - minio_data:/data
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+  #     interval: 30s
+  #     timeout: 20s
+  #     retries: 3
+
+  # ============================================================
+  # Metabase — Outil de visualisation / BI
+  # Interface : http://localhost:3000
+  # ============================================================
+  metabase:
+    image: metabase/metabase:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - JAVA_TIMEZONE=Europe/Paris
+    volumes:
+      - metabase_data:/metabase-data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ============================================================
+  # Spark Master — Coordinateur du cluster Spark
+  # Interface : http://localhost:8081
+  # Image officielle Apache Foundation avec support Python (PySpark)
+  # ============================================================
+  spark-master:
+    image: apache/spark-py:v3.4.0
+    user: root
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    environment:
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+    ports:
+      - "8081:8080"   # Spark UI (8080 réservé à Airflow)
+      - "7077:7077"   # Port de soumission des jobs Spark
+    volumes:
+      - ./data:/opt/airflow/data   # Même chemin que dans Airflow pour cohérence
+
+  # ============================================================
+  # Spark Worker — Nœud de calcul distribué
+  # ============================================================
+  spark-worker:
+    image: apache/spark-py:v3.4.0
+    user: root
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    environment:
+      - SPARK_WORKER_MEMORY=1g
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_WEBUI_PORT=8082
+    ports:
+      - "8082:8082"   # Spark Worker UI
+    volumes:
+      - ./data:/opt/airflow/data   # Accès aux données partagées
+    depends_on:
+      - spark-master
+
+  # ============================================================
+  # Airflow — Init DB (migration + création admin)
+  # ============================================================
+  airflow-init:
+    build: .
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate &&
+        airflow users create --username admin --password admin \
+          --firstname Admin --lastname User --role Admin --email admin@example.com || true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+    restart: "no"
+
+  # ============================================================
+  # Airflow — Webserver (UI)
+  # Interface : http://localhost:8080
+  # ============================================================
+  airflow-webserver:
+    build: .     # Image custom avec Java + PySpark (voir Dockerfile)
+    command: webserver
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      - LOAD_EX_EXAMPLES=n
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AQICN_KEY=${AQICN_KEY}
+      - OWM_KEY=${OWM_KEY}
+      - GOODAIR_DB_CONN=${GOODAIR_DB_CONN}
+      # - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      # - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      # - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      # - MINIO_BUCKET=${MINIO_BUCKET}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
+      - ./spark:/opt/airflow/spark   # Scripts Spark soumis via spark-submit
+
+  # ============================================================
+  # Airflow — Scheduler (exécution des DAGs)
+  # ============================================================
+  airflow-scheduler:
+    build: .     # Même image custom que le webserver
+    command: scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      - LOAD_EX_EXAMPLES=n
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AQICN_KEY=${AQICN_KEY}
+      - OWM_KEY=${OWM_KEY}
+      - GOODAIR_DB_CONN=${GOODAIR_DB_CONN}
+      # - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      # - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      # - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      # - MINIO_BUCKET=${MINIO_BUCKET}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
+      - ./spark:/opt/airflow/spark   # Scripts Spark soumis via spark-submit
+      - ./components:/opt/airflow/components
+
+volumes:
+  postgres_data:
+  # minio_data:
+  metabase_data:
