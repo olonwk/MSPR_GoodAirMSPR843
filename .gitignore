@@ -1,0 +1,45 @@
+# ==========================================
+# SÉCURITÉ & SECRETS (Priorité absolue)
+# ==========================================
+.oci/
+credentials.json
+*.key
+*.pem
+secrets.py
+
+# ==========================================
+# AIRFLOW & DOCKER
+# ==========================================
+logs/*
+logs/dag_processor_manager/*
+!logs/.gitkeep
+
+# On ignore les plugins sauf si tu en développes des persos
+plugins/*
+!plugins/.gitkeep
+
+# On ignore les fichiers de config générés par Airflow
+standalone_admin_password.txt
+airflow.cfg
+webserver_config.py
+
+# ==========================================
+# DONNÉES (Le dossier de collecte locale)
+# ==========================================
+data/*
+!data/.gitkeep
+*.json
+*.csv
+
+
+# ==========================================
+# PYTHON & SYSTÈME
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.DS_Store
+Thumbs.db
